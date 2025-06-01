@@ -115,6 +115,11 @@ def interactive(
         "--exclude",
         help="Emoji(s) to exclude from removal. Can be used multiple times.",
     ),
+    exclude_task_lists: bool = typer.Option(
+        False,
+        "--exclude-task-lists",
+        help="Do not remove emojis from markdown task list lines.",
+    ),
 ):
     """
     Interactive mode: select a file using fzf to remove emojis.
@@ -135,7 +140,19 @@ def interactive(
             if emojis:
                 print(f"[green]Found {len(emojis)} emojis in {selected_file}.[/green]")
                 if typer.confirm("Do you want to remove them?", abort=True):
-                    cleaned_content = remove_emojis(content, exclude=exclude or [])
+                    if exclude_task_lists:
+                        lines = content.splitlines(keepends=True)
+                        new_lines = []
+                        for line in lines:
+                            if re.match(r"^\s*[-+*]\s*\[[ xX]\]", line):
+                                new_lines.append(line)
+                            else:
+                                new_lines.append(
+                                    remove_emojis(line, exclude=exclude or [])
+                                )
+                        cleaned_content = "".join(new_lines)
+                    else:
+                        cleaned_content = remove_emojis(content, exclude=exclude or [])
                     with open(selected_file, "w", encoding="utf-8") as f:
                         f.write(cleaned_content)
                     typer.echo("Emojis removed.")
@@ -161,6 +178,11 @@ def remove_emojis_from_file(
         "-y",
         help="Automatically confirm emoji removal without prompting.",
     ),
+    exclude_task_lists: bool = typer.Option(
+        False,
+        "--exclude-task-lists",
+        help="Do not remove emojis from markdown task list lines.",
+    ),
 ):
     """
     Remove emojis from the specified file.
@@ -178,7 +200,20 @@ def remove_emojis_from_file(
             print(f"[yellow]{' '.join(emojis)}[/yellow]")
 
             if yes or typer.confirm("Do you want to remove them?", abort=True):
-                cleaned_content = remove_emojis(content, exclude=exclude or [])
+                if exclude_task_lists:
+                    print(
+                        "[yellow]exclude-task-lists is set: Excluding task lists from emoji removal[/yellow]"
+                    )
+                    lines = content.splitlines(keepends=True)
+                    new_lines = []
+                    for line in lines:
+                        if re.match(r"^\s*[-+*]\s*\[[ xX]\]", line):
+                            new_lines.append(line)
+                        else:
+                            new_lines.append(remove_emojis(line, exclude=exclude or []))
+                    cleaned_content = "".join(new_lines)
+                else:
+                    cleaned_content = remove_emojis(content, exclude=exclude or [])
                 with open(filename, "w", encoding="utf-8") as f:
                     f.write(cleaned_content)
                 typer.echo("Emojis removed.")
