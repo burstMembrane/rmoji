@@ -1,6 +1,7 @@
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import emoji
 import typer
@@ -8,99 +9,71 @@ from iterfzf import iterfzf
 from rich import print
 from ripgrepy import Ripgrepy
 
+from .constants import BLACKLIST, EMOJI_PATTERN
+
 app = typer.Typer()
 
 
-BLACKLIST = ["*⃣", "*️⃣"]
+def extract_emojis(text: str) -> list[str]:
+    """Extract emojis from a string.
+
+    Parameters
+    ----------
+    text : str
+        The input string to search for emojis.
+
+    Returns
+    -------
+    list[str]
+        List of emoji characters found in the text.
+    """
+    result = EMOJI_PATTERN.findall(text)
+    if not result:
+        return []
+    return list(map(str, set(result)))
 
 
-# Comprehensive emoji pattern covering various Unicode ranges
-EMOJI_PATTERN = re.compile(
-    "["
-    "\U0001f600-\U0001f64f"  # Emoticons
-    "\U0001f300-\U0001f5ff"  # Symbols & Pictographs
-    "\U0001f680-\U0001f6ff"  # Transport & Map Symbols
-    "\U0001f1e0-\U0001f1ff"  # Flags
-    "\U00002700-\U000027bf"  # Dingbats
-    "\U0001f900-\U0001f9ff"  # Supplemental Symbols & Pictographs
-    "\U0001fa70-\U0001faff"  # Symbols & Pictographs Extended-A
-    "\U00002600-\U000026ff"  # Miscellaneous Symbols
-    "\U00002300-\U000023ff"  # Miscellaneous Technical
-    "\U0001f700-\U0001f77f"  # Alchemical Symbols
-    "\U0001f780-\U0001f7ff"  # Geometric Shapes Extended
-    "\U0001f800-\U0001f8ff"  # Supplemental Arrows-C
-    "\U0001f000-\U0001f02f"  # Mahjong Tiles
-    "\U0001f0a0-\U0001f0ff"  # Playing Cards
-    "\U0001f1e6-\U0001f1ff"  # Regional Indicator Symbols
-    "\U0001f191-\U0001f251"  # Enclosed Characters
-    "\U0001f004"  # Mahjong Tile Red Dragon
-    "\U0001f0cf"  # Playing Card Black Joker
-    "\u200d"  # Zero Width Joiner
-    "\u2640-\u2642"  # Gender Symbols
-    "\u2600-\u2b55"  # Miscellaneous Symbols and Arrows
-    "\u23cf"  # Eject Symbol
-    "\u23e9-\u23f3"  # Additional Miscellaneous Technical
-    "\u25fd-\u25fe"  # White Medium Small Square
-    "\u2614-\u2615"  # Umbrella and Hot Beverage
-    "\u267f"  # Wheelchair Symbol
-    "\u2693"  # Anchor
-    "\u26a1"  # High Voltage
-    "\u26aa-\u26ab"  # Medium White/Black Circle
-    "\u26bd-\u26be"  # Soccer and Baseball
-    "\u26c4-\u26c5"  # Snowman Without/With Snow
-    "\u26ce"  # Ophiuchus
-    "\u26d4"  # No Entry
-    "\u26ea"  # Church
-    "\u26f2-\u26f3"  # Fountain and Flag in Hole
-    "\u26f5"  # Sailboat
-    "\u26fa"  # Tent
-    "\u26fd"  # Fuel Pump
-    "\u2702"  # Scissors
-    "\u2705"  # White Heavy Check Mark
-    "\u2708-\u2709"  # Airplane and Envelope
-    "\u270a-\u270b"  # Raised Fist and Raised Hand
-    "\u2728"  # Sparkles
-    "\u274c"  # Cross Mark
-    "\u274e"  # Negative Squared Cross Mark
-    "\u2753-\u2755"  # Question Marks
-    "\u2757"  # Exclamation Mark
-    "\u2795-\u2797"  # Plus, Minus, Division
-    "\u27b0"  # Curly Loop
-    "\u27bf"  # Double Curly Loop
-    "\u2b1b-\u2b1c"  # Black and White Large Square
-    "\u2b50"  # Star
-    "\u2b55"  # Heavy Large Circle
-    "\u2934-\u2935"  # Arrow Symbols
-    "\u3030"  # Wavy Dash
-    "\u303d"  # Part Alternation Mark
-    "\u3297"  # Circled Ideograph Congratulation
-    "\u3299"  # Circled Ideograph Secret
-    "]+",
-    flags=re.UNICODE,
-)
+def remove_emojis(text: str, exclude: list[str] | None = None) -> str:
+    """Remove emojis from a string.
 
+    Parameters
+    ----------
+    text : str
+        string to remove emojis from
+    exclude : list[str], optional
+        the list of emojis to exclude, by default all emojis are removed
 
-def extract_emojis(text: str):
-    return EMOJI_PATTERN.findall(text)
+    Returns
+    -------
+    str
+        string with emojis removed
+    """
+    if exclude is None:
+        exclude = []
 
-
-def remove_emojis(text: str, exclude: list[str] = []):
-    # Remove only emojis not in the exclude list
-    def emoji_replacer(match):
+    def emoji_replacer(match: re.Match[str]) -> str:
         char = match.group(0)
         return char if char in exclude else ""
 
-    return EMOJI_PATTERN.sub(emoji_replacer, text)
+    result: str = EMOJI_PATTERN.sub(emoji_replacer, text)
+    return result
 
 
-def get_file_list():
+def get_file_list() -> list[str] | list[Any]:
+    """Get a list of all files in the current directory using fd.
+
+    Returns
+    -------
+    list[str]
+        List of file paths, or empty list if fd fails.
+    """
     try:
         result = subprocess.run(
             ["fd", "--type", "f"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             check=True,
+            shell=True,
         )
         return result.stdout.strip().split("\n")
     except subprocess.CalledProcessError as e:
@@ -120,9 +93,18 @@ def interactive(
         "--exclude-task-lists",
         help="Do not remove emojis from markdown task list lines.",
     ),
-):
-    """
-    Interactive mode: select a file using fzf to remove emojis.
+) -> None:
+    """Interactive mode: select a file using fzf to remove emojis.
+
+    Launches fzf to allow file selection, then scans the selected file
+    for emojis and prompts for confirmation before removal.
+
+    Parameters
+    ----------
+    exclude : list[str], optional
+        Emoji(s) to preserve during removal.
+    exclude_task_lists : bool, optional
+        If True, preserves emojis on markdown task list lines.
     """
     files = get_file_list()
     if not files:
@@ -130,38 +112,37 @@ def interactive(
         raise typer.Exit()
 
     selected_file = iterfzf(files)
-    if selected_file:
-        try:
-            with open(selected_file, "r", encoding="utf-8") as f:
-                content = f.read()
-            emojis = extract_emojis(content)
-            if exclude:
-                emojis = list(filter(lambda x: x not in exclude, emojis))
-            if emojis:
-                print(f"[green]Found {len(emojis)} emojis in {selected_file}.[/green]")
-                if typer.confirm("Do you want to remove them?", abort=True):
-                    if exclude_task_lists:
-                        lines = content.splitlines(keepends=True)
-                        new_lines = []
-                        for line in lines:
-                            if re.match(r"^\s*[-+*]\s*\[[ xX]\]", line):
-                                new_lines.append(line)
-                            else:
-                                new_lines.append(
-                                    remove_emojis(line, exclude=exclude or [])
-                                )
-                        cleaned_content = "".join(new_lines)
-                    else:
-                        cleaned_content = remove_emojis(content, exclude=exclude or [])
-                    with open(selected_file, "w", encoding="utf-8") as f:
-                        f.write(cleaned_content)
-                    typer.echo("Emojis removed.")
-            else:
-                print(f"[yellow]No emojis found in {selected_file}.[/yellow]")
-        except Exception as e:
-            typer.echo(f"Error reading file {selected_file}: {e}")
-    else:
+    if not selected_file:
         typer.echo("No file selected.")
+        raise typer.Exit()
+
+    with Path(selected_file).open(encoding="utf-8") as f:
+        content = f.read()
+
+    emojis = extract_emojis(content)
+
+    if exclude:
+        emojis = list(filter(lambda x: x not in exclude, emojis))
+
+    if not emojis:
+        print(f"[yellow]No emojis found in {selected_file}.[/yellow]")
+        raise typer.Exit()
+    print(f"[green]Found {len(emojis)} emojis in {selected_file}.[/green]")
+    if typer.confirm("Do you want to remove them?", abort=True):
+        if exclude_task_lists:
+            lines = content.splitlines(keepends=True)
+            new_lines = []
+            for line in lines:
+                if re.match(r"^\s*[-+*]\s*\[[ xX]\]", line):
+                    new_lines.append(line)
+                else:
+                    new_lines.append(remove_emojis(line, exclude=exclude or []))
+            cleaned_content = "".join(new_lines)
+        else:
+            cleaned_content = remove_emojis(content, exclude=exclude or [])
+        with Path(selected_file).open("w", encoding="utf-8") as f:
+            f.write(cleaned_content)
+        typer.echo("Emojis removed.")
 
 
 @app.command("remove")
@@ -183,12 +164,25 @@ def remove_emojis_from_file(
         "--exclude-task-lists",
         help="Do not remove emojis from markdown task list lines.",
     ),
-):
-    """
-    Remove emojis from the specified file.
+) -> None:
+    """Remove emojis from the specified file.
+
+    Reads the file, identifies emojis, displays them to the user, and removes
+    them after confirmation (or automatically with --yes flag).
+
+    Parameters
+    ----------
+    filename : str
+        Path to the file to process.
+    exclude : list[str], optional
+        Emoji(s) to preserve during removal.
+    yes : bool, optional
+        If True, skip confirmation prompt.
+    exclude_task_lists : bool, optional
+        If True, preserves emojis on markdown task list lines.
     """
     try:
-        with open(filename, "r", encoding="utf-8") as f:
+        with Path(filename).open(encoding="utf-8") as f:
             content = f.read()
 
         emojis = extract_emojis(content)
@@ -201,9 +195,7 @@ def remove_emojis_from_file(
 
             if yes or typer.confirm("Do you want to remove them?", abort=True):
                 if exclude_task_lists:
-                    print(
-                        "[yellow]exclude-task-lists is set: Excluding task lists from emoji removal[/yellow]"
-                    )
+                    print("[yellow]exclude-task-lists is set: Excluding task lists from emoji removal[/yellow]")
                     lines = content.splitlines(keepends=True)
                     new_lines = []
                     for line in lines:
@@ -214,7 +206,7 @@ def remove_emojis_from_file(
                     cleaned_content = "".join(new_lines)
                 else:
                     cleaned_content = remove_emojis(content, exclude=exclude or [])
-                with open(filename, "w", encoding="utf-8") as f:
+                with Path(filename).open("w", encoding="utf-8") as f:
                     f.write(cleaned_content)
                 typer.echo("Emojis removed.")
         else:
@@ -225,9 +217,11 @@ def remove_emojis_from_file(
 
 
 @app.command("print")
-def print_emojis():
-    """
-    Print all known emojis separated by '|'.
+def print_emojis() -> None:
+    """Print all known emojis separated by '|'.
+
+    Outputs all emojis from the emoji database (excluding blacklisted ones)
+    as a pipe-separated string, useful for piping to ripgrep or other tools.
     """
     all_emojis = list(emoji.EMOJI_DATA.keys())
 
@@ -236,51 +230,96 @@ def print_emojis():
     print("|".join(all_emojis))
 
 
-def _scan_for_emojis(path: str, depth: int = 10):
+def _display_scan_results(display_tuples: list[tuple[int, str, str]]) -> None:
+    """Display scan results showing emoji counts per file."""
+    for count, emoji_file_display, _ in display_tuples:
+        if count == -1:
+            print(f"[cyan]{emoji_file_display}\t[red][error][/red][/cyan]")
+        else:
+            print(f"[green]{count}[/green]\t[cyan]{emoji_file_display}[/cyan]")
+
+
+def _nuke_file(
+    file_path: str,
+    exclude: list[str] | None,
+    exclude_task_lists: bool,
+) -> bool:
+    """Remove emojis from a single file.
+
+    Returns True on success, False on failure.
     """
-    Shared function to scan for emoji files. Returns tuple of (total_emoji_count, files_with_emoji_data).
-    files_with_emoji_data is list of tuples: (count, file_display_path, file_path)
+    with Path(file_path).open(encoding="utf-8") as f:
+        content = f.read()
+
+    if not content:
+        return True
+
+    if exclude_task_lists:
+        lines = content.splitlines(keepends=True)
+        cleaned_content = "".join(
+            line if re.match(r"^\s*[-+*]\s*\[[ xX]\]", line) else remove_emojis(line, exclude=exclude or [])
+            for line in lines
+        )
+    else:
+        cleaned_content = remove_emojis(content, exclude=exclude or [])
+
+    with Path(file_path).open("w", encoding="utf-8") as f:
+        f.write(cleaned_content)
+
+    return True
+
+
+def _scan_for_emojis(path: str, depth: int = 10) -> tuple[int, list[tuple[int, str, str]]]:
+    """Scan a directory for files containing emojis using ripgrep.
+
+    Parameters
+    ----------
+    path : str
+        The directory path to scan.
+    depth : int, optional
+        Maximum recursion depth (currently unused, reserved for future use).
+
+    Returns
+    -------
+    tuple[int, list[tuple[int, str, str]]]
+        A tuple of (total_emoji_count, files_with_emoji_data) where
+        files_with_emoji_data is a list of (count, display_path, file_path) tuples.
     """
     all_emojis = list(emoji.EMOJI_DATA.keys())
     all_emojis = list(filter(lambda x: x not in BLACKLIST, all_emojis))
     rg = Ripgrepy("|".join(all_emojis), path)
     rg.json()
 
-    # rg.max_depth(depth)
-
-    try:
-        results = rg.run().as_dict
-        files_with_matches = set()
-
-        for match in results:
-            if "data" in match and "path" in match["data"]:
-                file_path = match["data"]["path"]["text"]
-                files_with_matches.add(file_path)
-
-        if files_with_matches:
-            display_tuples = []
-            for emoji_file in files_with_matches:
-                try:
-                    with open(emoji_file, "r", encoding="utf-8") as f:
-                        text = f.read()
-                    count = len(extract_emojis(text))
-                    emoji_file_display = emoji_file.replace("./", "")
-                    file_abspath = Path(emoji_file_display).relative_to(".").absolute()
-                    display_tuples.append((count, emoji_file_display, emoji_file))
-                except Exception:
-                    emoji_file_display = emoji_file.replace("./", "")
-                    display_tuples.append((-1, emoji_file_display, emoji_file))
-
-            # Sort display_tuples by count in descending order
-            display_tuples.sort(key=lambda x: x[0], reverse=True)
-            
-            total_emojis = sum(count for count, _, _ in display_tuples if count > 0)
-            return total_emojis, display_tuples
-        else:
-            return 0, []
-    except Exception as e:
-        typer.echo(f"Error during scan: {e}")
+    results = rg.run().as_dict
+    files_with_matches = set()
+    if not results:
         return 0, []
+
+    for match in results:
+        if "data" in match and "path" in match["data"]:
+            file_path = match["data"]["path"]["text"]
+            files_with_matches.add(file_path)
+
+    if files_with_matches:
+        display_tuples = []
+        for emoji_file in files_with_matches:
+            try:
+                with Path(emoji_file).open(encoding="utf-8") as f:
+                    text = f.read()
+                count = len(extract_emojis(text))
+                emoji_file_display = emoji_file.replace("./", "")
+                Path(emoji_file_display).relative_to(".").absolute()
+                display_tuples.append((count, emoji_file_display, emoji_file))
+            except Exception:
+                emoji_file_display = emoji_file.replace("./", "")
+                display_tuples.append((-1, emoji_file_display, emoji_file))
+
+        # Sort display_tuples by count in descending order
+        display_tuples.sort(key=lambda x: x[0], reverse=True)
+
+        total_emojis = sum(count for count, _, _ in display_tuples if count > 0)
+        return total_emojis, display_tuples
+    return 0, []
 
 
 @app.command("scan")
@@ -291,25 +330,27 @@ def scan(
         help="Max depth to recurse through directories",
     ),
     path: str = typer.Argument(".", help="Path to scan for emojis"),
-):
-    """
-    Scan the specified directory for files containing emojis using ripgrepy.
+) -> None:
+    """Scan the specified directory for files containing emojis.
+
+    Uses ripgrep to find files containing emojis and displays a summary
+    with emoji counts per file, sorted by count in descending order.
+
+    Parameters
+    ----------
+    depth : int, optional
+        Maximum recursion depth for directory traversal.
+    path : str, optional
+        Directory path to scan, defaults to current directory.
     """
     total_emojis, display_tuples = _scan_for_emojis(path, depth)
-    
-    if display_tuples:
-        print(
-            f"[green]Found {total_emojis} emojis in {len(display_tuples)} files.[/green]"
-        )
-        for count, emoji_file_display, _ in display_tuples:
-            if count == -1:
-                print(f"[cyan]{emoji_file_display}\t[error][/cyan]")
-            else:
-                print(f"[green]{count}[/green]\t[cyan]{emoji_file_display}[/cyan]")
-    else:
-        typer.echo(
-            "No emoji-ridden files found. Get some at https://www.chatgpt.com"
-        )
+
+    if not display_tuples:
+        typer.echo("No emoji-ridden files found. Get some at https://www.chatgpt.com")
+        return
+
+    print(f"[green]Found {total_emojis} emojis in {len(display_tuples)} files.[/green]")
+    _display_scan_results(display_tuples)
 
 
 @app.command("nuke")
@@ -336,81 +377,66 @@ def nuke(
         "--exclude-task-lists",
         help="Do not remove emojis from markdown task list lines.",
     ),
-):
-    """
-    Scan directory for emoji files and remove all emojis from the entire project.
+) -> None:
+    """Scan directory and remove all emojis from all files.
+
+    Scans the directory for files containing emojis, displays a summary,
+    and upon confirmation removes all emojis from every matched file.
+
+    Parameters
+    ----------
+    depth : int, optional
+        Maximum recursion depth for directory traversal.
+    path : str, optional
+        Directory path to scan, defaults to current directory.
+    exclude : list[str], optional
+        Emoji(s) to preserve during removal.
+    yes : bool, optional
+        If True, skip confirmation prompt.
+    exclude_task_lists : bool, optional
+        If True, preserves emojis on markdown task list lines.
     """
     print(f"[yellow]Scanning {path} for emoji files...[/yellow]")
-    
+
     total_emojis, display_tuples = _scan_for_emojis(path, depth)
-    
+
     if not display_tuples:
-        typer.echo(
-            "No emoji-ridden files found. Nothing to nuke! "
-        )
+        typer.echo("No emoji-ridden files found. Nothing to nuke!")
         return
-    
-    # Show scan results
-    print(
-        f"[green]Found {total_emojis} emojis in {len(display_tuples)} files.[/green]"
-    )
-    
-    for count, emoji_file_display, _ in display_tuples:
-        if count == -1:
-            print(f"[cyan]{emoji_file_display}\t[red][error][/red][/cyan]")
-        else:
-            print(f"[green]{count}[/green]\t[cyan]{emoji_file_display}[/cyan]")
-    
+
+    # Show scan results and options
+    print(f"[green]Found {total_emojis} emojis in {len(display_tuples)} files.[/green]")
+    _display_scan_results(display_tuples)
     print(f"\n[yellow]This will remove emojis from {len(display_tuples)} files.[/yellow]")
-    
+
     if exclude_task_lists:
         print("[yellow]exclude-task-lists is set: Task lists will be preserved[/yellow]")
-    
     if exclude:
         print(f"[yellow]Excluding emojis: {' '.join(exclude)}[/yellow]")
-    
+
     # Get confirmation
     if not yes and not typer.confirm("\n[red] NUKE ALL EMOJIS? This cannot be undone![/red]"):
         print("[yellow]Nuke cancelled.[/yellow]")
         return
-    
+
     # Process all files
     success_count = 0
-    error_count = 0
-    
+    error_count = sum(1 for count, _, _ in display_tuples if count == -1)
+
     for count, emoji_file_display, file_path in display_tuples:
-        if count == -1:  # Skip error files
-            error_count += 1
+        if count == -1:
             continue
-            
+
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            
-            if exclude_task_lists:
-                lines = content.splitlines(keepends=True)
-                new_lines = []
-                for line in lines:
-                    if re.match(r"^\s*[-+*]\s*\[[ xX]\]", line):
-                        new_lines.append(line)
-                    else:
-                        new_lines.append(remove_emojis(line, exclude=exclude or []))
-                cleaned_content = "".join(new_lines)
-            else:
-                cleaned_content = remove_emojis(content, exclude=exclude or [])
-            
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(cleaned_content)
-            
+            _nuke_file(file_path, exclude, exclude_task_lists)
             success_count += 1
             print(f"[green][/green] [cyan]{emoji_file_display}[/cyan]")
-            
         except Exception as e:
             error_count += 1
             print(f"[red][/red] [cyan]{emoji_file_display}[/cyan] - {e}")
-    
+
     # Summary
-    print(f"\n[green] Nuke complete![/green]")
+    print("\n[green] Nuke complete![/green]")
     print(f"[green]Files processed: {success_count}[/green]")
     if error_count > 0:
         print(f"[red]Files with errors: {error_count}[/red]")
