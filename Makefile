@@ -3,6 +3,8 @@ install:
 	uv sync 
 venv:
 	uv venv
+test:
+	uv run pytest  --cov=rmoji --cov-report=term-missing
 build:
 	uv build
 typecheck:

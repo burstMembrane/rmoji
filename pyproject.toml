@@ -24,6 +24,8 @@ dev = [
     "mypy>=1.19.1",
     "pip-audit>=2.10.0",
     "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
     "ruff>=0.14.9",
 ]
 
@@ -93,3 +95,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["rmoji"]
 
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

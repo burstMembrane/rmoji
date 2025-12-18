@@ -1,0 +1,3 @@
+-   [ ] Task with priority placed before tag _priority will be recognized_ 🔼 #tag
+-   [ ] Task with date placed before tag _date will be recognized_ 📅 2021-04-09 #tag
+-   [ ] Task with date placed before other text _date will be not recognized_ 📅 2021-04-09

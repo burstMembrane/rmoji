@@ -73,7 +73,9 @@ def _scan_for_emojis(path: str, depth: int = 10) -> tuple[int, list[tuple[int, s
     rg.json()
 
     results = rg.run().as_dict
+
     files_with_matches = set()
+
     if not results:
         return 0, []
 
@@ -81,24 +83,29 @@ def _scan_for_emojis(path: str, depth: int = 10) -> tuple[int, list[tuple[int, s
         if "data" in match and "path" in match["data"]:
             file_path = match["data"]["path"]["text"]
             files_with_matches.add(file_path)
+    if not files_with_matches:
+        return 0, []
+    display_tuples = []
+    for emoji_file in files_with_matches:
+        try:
+            with Path(emoji_file).open(encoding="utf-8") as f:
+                text = f.read()
 
-    if files_with_matches:
-        display_tuples = []
-        for emoji_file in files_with_matches:
+            count = len(extract_emojis(text))
+
+            # Make display path relative to the scan root
             try:
-                with Path(emoji_file).open(encoding="utf-8") as f:
-                    text = f.read()
-                count = len(extract_emojis(text))
+                emoji_file_display = str(Path(emoji_file).relative_to(Path(path).resolve()))
+            except ValueError:
                 emoji_file_display = emoji_file.replace("./", "")
-                Path(emoji_file_display).relative_to(".").absolute()
-                display_tuples.append((count, emoji_file_display, emoji_file))
-            except Exception:
-                emoji_file_display = emoji_file.replace("./", "")
-                display_tuples.append((-1, emoji_file_display, emoji_file))
+            display_tuples.append((count, emoji_file_display, emoji_file))
+        except Exception as e:
+            print(f"[red]Error reading file {emoji_file}: {e}[/red]")
+            return (-1, [])
 
-        # Sort display_tuples by count in descending order
-        display_tuples.sort(key=lambda x: x[0], reverse=True)
+    # Sort display_tuples by count in descending order
+    display_tuples.sort(key=lambda x: x[0], reverse=True)
 
-        total_emojis = sum(count for count, _, _ in display_tuples if count > 0)
-        return total_emojis, display_tuples
-    return 0, []
+    total_emojis = sum(count for count, _, _ in display_tuples if count > 0)
+
+    return total_emojis, display_tuples
