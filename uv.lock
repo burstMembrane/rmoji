@@ -659,7 +659,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/60/7b/a52523c8fbb34272c
 
 [[package]]
 name = "rmoji"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "emoji" },
