@@ -258,7 +258,7 @@ def nuke(
         print(f"[yellow]Excluding emojis: {' '.join(exclude)}[/yellow]")
 
     # Get confirmation
-    if not yes and not typer.confirm("\n[red] NUKE ALL EMOJIS? This cannot be undone![/red]"):
+    if not yes and not typer.confirm("NUKE ALL EMOJIS? This cannot be undone!"):
         print("[yellow]Nuke cancelled.[/yellow]")
         return
 
