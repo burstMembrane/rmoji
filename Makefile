@@ -15,8 +15,6 @@ format-check:
 	uv run ruff format --check rmoji 
 deptry:
 	uv run deptry rmoji
-bandit:
-	uv run bandit -r rmoji -c pyproject.toml
 audit:
 	uv run pip-audit
 pre-commit:

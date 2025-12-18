@@ -67,13 +67,14 @@ def get_file_list() -> list[str] | list[Any]:
     list[str]
         List of file paths, or empty list if fd fails.
     """
+    # get the list of files using fd
     try:
         result = subprocess.run(
             ["fd", "--type", "f"],
             capture_output=True,
             text=True,
             check=True,
-            shell=True,
+            shell=False,
         )
         return result.stdout.strip().split("\n")
     except subprocess.CalledProcessError as e:
