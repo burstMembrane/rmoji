@@ -1,121 +1,19 @@
-import os
+"""CLI commands for rmoji."""
+
 import re
 from pathlib import Path
-from typing import Any
 
 import emoji
-import pathspec
 import typer
 from iterfzf import iterfzf
 from rich import print
-from ripgrepy import Ripgrepy
 
-from .constants import BLACKLIST, EMOJI_PATTERN
+from .constants import BLACKLIST
+from .emoji import extract_emojis, remove_emojis
+from .files import get_file_list
+from .scanner import _display_scan_results, _nuke_file, _scan_for_emojis
 
 app = typer.Typer()
-
-
-def extract_emojis(text: str) -> list[str]:
-    """Extract emojis from a string.
-
-    Parameters
-    ----------
-    text : str
-        The input string to search for emojis.
-
-    Returns
-    -------
-    list[str]
-        List of emoji characters found in the text.
-    """
-    result = EMOJI_PATTERN.findall(text)
-    if not result:
-        return []
-    return list(map(str, set(result)))
-
-
-def remove_emojis(text: str, exclude: list[str] | None = None) -> str:
-    """Remove emojis from a string.
-
-    Parameters
-    ----------
-    text : str
-        string to remove emojis from
-    exclude : list[str], optional
-        the list of emojis to exclude, by default all emojis are removed
-
-    Returns
-    -------
-    str
-        string with emojis removed
-    """
-    if exclude is None:
-        exclude = []
-
-    def emoji_replacer(match: re.Match[str]) -> str:
-        char = match.group(0)
-        return char if char in exclude else ""
-
-    result: str = EMOJI_PATTERN.sub(emoji_replacer, text)
-    return result
-
-
-def _load_gitignore_spec(root: Path) -> pathspec.PathSpec | None:
-    """Load .gitignore patterns from the given root directory.
-
-    Parameters
-    ----------
-    root : Path
-        The root directory to search for .gitignore.
-
-    Returns
-    -------
-    pathspec.PathSpec | None
-        A PathSpec object if .gitignore exists, None otherwise.
-    """
-    gitignore_path = root / ".gitignore"
-    if not gitignore_path.exists():
-        return None
-
-    with gitignore_path.open(encoding="utf-8") as f:
-        return pathspec.PathSpec.from_lines("gitwildmatch", f)
-
-
-def get_file_list(root: str = ".") -> list[str] | list[Any]:
-    """Get a list of all files in the directory, respecting .gitignore patterns.
-
-    Parameters
-    ----------
-    root : str
-        The root directory to scan, defaults to current directory.
-
-    Returns
-    -------
-    list[str]
-        List of file paths relative to root, excluding gitignored files.
-    """
-    root_path = Path(root).resolve()
-    spec = _load_gitignore_spec(root_path)
-
-    files: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(root_path):
-        rel_dir = Path(dirpath).relative_to(root_path)
-
-        # Filter out .git directory
-        if ".git" in dirnames:
-            dirnames.remove(".git")
-
-        for filename in filenames:
-            rel_path = rel_dir / filename if str(rel_dir) != "." else Path(filename)
-            rel_path_str = str(rel_path)
-
-            # Skip if matches gitignore patterns
-            if spec and spec.match_file(rel_path_str):
-                continue
-
-            files.append(rel_path_str)
-
-    return files
 
 
 @app.command()
@@ -260,103 +158,11 @@ def print_emojis() -> None:
     Outputs all emojis from the emoji database (excluding blacklisted ones)
     as a pipe-separated string, useful for piping to ripgrep or other tools.
     """
-    all_emojis = list(emoji.EMOJI_DATA.keys())
+    all_emojis = list(emoji.EMOJI_DATA.keys())  # type: ignore[attr-defined]
 
     # remove the blacklist emojis
     all_emojis = list(filter(lambda x: x not in BLACKLIST, all_emojis))
     print("|".join(all_emojis))
-
-
-def _display_scan_results(display_tuples: list[tuple[int, str, str]]) -> None:
-    """Display scan results showing emoji counts per file."""
-    for count, emoji_file_display, _ in display_tuples:
-        if count == -1:
-            print(f"[cyan]{emoji_file_display}\t[red][error][/red][/cyan]")
-        else:
-            print(f"[green]{count}[/green]\t[cyan]{emoji_file_display}[/cyan]")
-
-
-def _nuke_file(
-    file_path: str,
-    exclude: list[str] | None,
-    exclude_task_lists: bool,
-) -> bool:
-    """Remove emojis from a single file.
-
-    Returns True on success, False on failure.
-    """
-    with Path(file_path).open(encoding="utf-8") as f:
-        content = f.read()
-
-    if not content:
-        return True
-
-    if exclude_task_lists:
-        lines = content.splitlines(keepends=True)
-        cleaned_content = "".join(
-            line if re.match(r"^\s*[-+*]\s*\[[ xX]\]", line) else remove_emojis(line, exclude=exclude or [])
-            for line in lines
-        )
-    else:
-        cleaned_content = remove_emojis(content, exclude=exclude or [])
-
-    with Path(file_path).open("w", encoding="utf-8") as f:
-        f.write(cleaned_content)
-
-    return True
-
-
-def _scan_for_emojis(path: str, depth: int = 10) -> tuple[int, list[tuple[int, str, str]]]:
-    """Scan a directory for files containing emojis using ripgrep.
-
-    Parameters
-    ----------
-    path : str
-        The directory path to scan.
-    depth : int, optional
-        Maximum recursion depth (currently unused, reserved for future use).
-
-    Returns
-    -------
-    tuple[int, list[tuple[int, str, str]]]
-        A tuple of (total_emoji_count, files_with_emoji_data) where
-        files_with_emoji_data is a list of (count, display_path, file_path) tuples.
-    """
-    all_emojis = list(emoji.EMOJI_DATA.keys())
-    all_emojis = list(filter(lambda x: x not in BLACKLIST, all_emojis))
-    rg = Ripgrepy("|".join(all_emojis), path)
-    rg.json()
-
-    results = rg.run().as_dict
-    files_with_matches = set()
-    if not results:
-        return 0, []
-
-    for match in results:
-        if "data" in match and "path" in match["data"]:
-            file_path = match["data"]["path"]["text"]
-            files_with_matches.add(file_path)
-
-    if files_with_matches:
-        display_tuples = []
-        for emoji_file in files_with_matches:
-            try:
-                with Path(emoji_file).open(encoding="utf-8") as f:
-                    text = f.read()
-                count = len(extract_emojis(text))
-                emoji_file_display = emoji_file.replace("./", "")
-                Path(emoji_file_display).relative_to(".").absolute()
-                display_tuples.append((count, emoji_file_display, emoji_file))
-            except Exception:
-                emoji_file_display = emoji_file.replace("./", "")
-                display_tuples.append((-1, emoji_file_display, emoji_file))
-
-        # Sort display_tuples by count in descending order
-        display_tuples.sort(key=lambda x: x[0], reverse=True)
-
-        total_emojis = sum(count for count, _, _ in display_tuples if count > 0)
-        return total_emojis, display_tuples
-    return 0, []
 
 
 @app.command("scan")
